@@ -60,6 +60,23 @@ class AsyncSoundbar:
         return data["result"]
         
         
+        
+            async def set_night_mode(self, enable: bool):
+                """Zapne nebo vypne night mode přes AdvancedSoundSettings příkaz."""
+                command = {
+                    "command": "AdvancedSoundSettings",
+                    "params": {
+                        "night_mode": enable
+                    }
+                }
+                response = await self.send_command(command)
+                if response.get("result") == "ok":
+                    # Aktualizuj stav v objektu
+                    self.night_mode = enable
+                else:
+                    # případně loguj chybu
+                    pass
+        
     
         async def send_command(self, cmd: dict):
             cmd["id"] = self._id

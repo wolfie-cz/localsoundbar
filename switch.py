@@ -4,33 +4,36 @@ from homeassistant.core import HomeAssistant
 
 from .const import DOMAIN
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_devices):
+async def async_setup_entry(hass, entry, async_add_entities):
+    """Set up the switch platform."""
     data = hass.data[DOMAIN][entry.entry_id]
     soundbar = data["soundbar"]
-    async_add_devices([NightModeSwitch(soundbar)])
+
+    async_add_entities([
+        NightModeSwitch(soundbar, entry),
+    ], True)
 
 
 class NightModeSwitch(SwitchEntity):
-    def __init__(self, soundbar):
-        self._soundbar = soundbar
-        self._attr_name = "Soundbar Night Mode"
-        self._attr_unique_id = f"{soundbar.host}_night_mode"
-        self._is_on = False
+    """Switch entity to control Night Mode on Samsung Soundbar."""
 
-    async def async_update(self):
-        advanced_settings = await self._soundbar.get_advanced_sound_settings()
-        self._is_on = advanced_settings.get("nightMode", False)
+    def __init__(self, soundbar, entry):
+        self._soundbar = soundbar
+        self._entry = entry
+        host = entry.data["host"]
+        self._attr_name = f"Soundbar Night Mode {host}"
+        self._attr_unique_id = f"{host}_night_mode"
 
     @property
     def is_on(self):
-        return self._is_on
+        """Return True if night mode is enabled."""
+        # Předpokládejme, že soundbar má atribut night_mode
+        return getattr(self._soundbar, "night_mode", False)
 
-    async def async_turn_on(self):
-        await self._soundbar.set_advanced_sound_settings({"nightMode": True})
-        self._is_on = True
-        self.async_write_ha_state()
+    async def async_turn_on(self, **kwargs):
+        """Turn on night mode."""
+        await self._soundbar.set_night_mode(True)
 
-    async def async_turn_off(self):
-        await self._soundbar.set_advanced_sound_settings({"nightMode": False})
-        self._is_on = False
-        self.async_write_ha_state()
+    async def async_turn_off(self, **kwargs):
+        """Turn off night mode."""
+        await self._soundbar.set_night_mode(False)
