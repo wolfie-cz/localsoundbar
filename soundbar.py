@@ -35,6 +35,7 @@ class AsyncSoundbar:
         self._verify_ssl = verify_ssl
         self._timeout = timeout
         self._token: Optional[str] = None
+        self._id = 1 
 
     # ------------------ internal helpers ------------------
     async def _post(self, payload: Dict[str, Any]) -> Dict[str, Any]:
