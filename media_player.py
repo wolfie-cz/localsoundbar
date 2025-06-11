@@ -9,6 +9,7 @@ from homeassistant.components.media_player import (
     MediaPlayerEntityFeature,
 )
 from homeassistant.const import STATE_OFF, STATE_ON
+from homeassistant.helpers import entity_platform
 from homeassistant.core import callback
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -57,15 +58,28 @@ async def async_setup_entry(hass, entry: ConfigEntry, async_add_entities):
     coordinator = data["coordinator"]
     soundbar: AsyncSoundbar = data["soundbar"]
 
-    async_add_entities([SoundbarLocalEntity(coordinator, soundbar, entry)], True)
+    entity = SoundbarLocalEntity(coordinator, soundbar, entry)
+    async_add_entities([entity], True)
 
+    # Registrace služby set_night_mode
+    platform = entity_platform.async_get_current_platform()
 
+    platform.async_register_entity_service(
+        "set_night_mode",
+        {
+            "enable": bool,
+        },
+        "async_set_night_mode",
+    )
+    
+    
 class SoundbarLocalEntity(CoordinatorEntity, MediaPlayerEntity):
     """Representation of the soundbar as a Media Player entity."""
 
     _attr_supported_features = _SUPPORTED
     _attr_source_list = _SOURCES
     _attr_sound_mode_list = _SOUND_MODES
+    _night_mode: bool = False  # stav night mode
 
     def __init__(self, coordinator, soundbar: AsyncSoundbar, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
@@ -82,7 +96,32 @@ class SoundbarLocalEntity(CoordinatorEntity, MediaPlayerEntity):
             name=self._attr_name,
         )
 
-    # ---------- control ----------
+    async def async_set_night_mode(self, enable: bool) -> None:
+        """Zapne nebo vypne night mode."""
+        try:
+            success = await self._soundbar.set_night_mode(enable)
+            if success:
+                self._night_mode = enable
+                self.async_write_ha_state()
+            else:
+                _LOGGER.warning("Nepodařilo se nastavit night mode.")
+        except Exception as e:
+            _LOGGER.exception(f"Chyba při nastavování night mode: {e}")
+            
+            
+            
+    async def async_added_to_hass(self):
+        """Načte počáteční stav night mode při přidání do Home Assistantu."""
+        await super().async_added_to_hass()
+        try:
+            settings = await self._soundbar.get_advanced_sound_settings()
+            self._night_mode = settings.get("nightMode", False)
+            self.async_write_ha_state()
+        except Exception as e:
+            _LOGGER.warning("Nepodařilo se načíst stav night mode: %s", e)
+            
+ 
+    
     async def async_turn_on(self) -> None:
         await self._soundbar.power_on()
         await self.coordinator.async_request_refresh()
@@ -112,20 +151,19 @@ class SoundbarLocalEntity(CoordinatorEntity, MediaPlayerEntity):
         await self._soundbar.select_input(source)
         await self.coordinator.async_request_refresh()
 
-
     async def async_select_sound_mode(self, sound_mode: str) -> None:
-        if sound_mode == "NIGHT":
-            response = await self._soundbar.set_advanced_sound_settings({"nightMode": True})
-            if response and response.get("result") == "ok":
-                _LOGGER.info("Night mode enabled")
-            else:
-                _LOGGER.error("Failed to enable night mode")
-        else:
-            await self._soundbar.set_sound_mode(sound_mode)
+        await self._soundbar.set_sound_mode(sound_mode)
         await self.coordinator.async_request_refresh()
 
-
     # ---------- properties ----------
+    
+    @property
+    def extra_state_attributes(self):
+        attrs = super().extra_state_attributes or {}
+        attrs["night_mode"] = self._night_mode
+        return attrs
+        
+        
     @property
     def state(self):
         power = self.coordinator.data.get("power")

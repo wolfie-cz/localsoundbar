@@ -35,7 +35,6 @@ class AsyncSoundbar:
         self._verify_ssl = verify_ssl
         self._timeout = timeout
         self._token: Optional[str] = None
-        self._id = 1 
 
     # ------------------ internal helpers ------------------
     async def _post(self, payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -59,42 +58,6 @@ class AsyncSoundbar:
         if "error" in data:
             raise SoundbarApiError(data["error"])
         return data["result"]
-        
-        
-        
-    async def set_night_mode(self, enable: bool):
-        """Zapne nebo vypne night mode přes AdvancedSoundSettings příkaz."""
-        command = {
-            "command": "AdvancedSoundSettings",
-            "params": {
-                "night_mode": enable
-            }
-        }
-        response = await self.send_command(command)
-        if response.get("result") == "ok":
-            # Aktualizuj stav v objektu
-            self.night_mode = enable
-        else:
-            # případně loguj chybu
-            pass
-        
-    
-    async def send_command(self, cmd: dict):
-        cmd["id"] = self._id
-        self._id += 1
-        message = json.dumps(cmd) + "\r\n"
-        self.writer.write(message.encode())
-        await self.writer.drain()
-        try:
-            data = await asyncio.wait_for(self.reader.readuntil(b"\r\n"), timeout=3)
-            return json.loads(data.decode())
-        except Exception as e:
-            print(f"Error receiving response: {e}")
-            return None
-    
-    
-    
-    
 
     async def _call(self, method: str, **params: Any):
         if method != "createAccessToken":
@@ -106,6 +69,19 @@ class AsyncSoundbar:
         if params:
             payload["params"] = params
         return await self._post(payload)
+        
+        
+        
+    async def set_night_mode(self, enable: bool) -> bool:
+        """
+        Nastaví night mode přes setAdvancedSoundSettings.
+        """
+        try:
+            result = await self._call("setAdvancedSoundSettings", params={"nightMode": enable})
+            return result.get("result") == "ok"
+        except Exception as e:
+            _LOGGER.warning(f"Chyba při nastavování night mode: {e}")
+            return False
 
     # ------------------ public API ------------------
     async def create_token(self) -> str:
@@ -141,18 +117,6 @@ class AsyncSoundbar:
 
     async def set_sound_mode(self, mode: str):
         await self._call("soundModeControl", soundMode=mode)
-        
-        
-    async def set_advanced_sound_settings(self, settings: dict):
-        cmd = {
-            "jsonrpc": "2.0",
-            "method": "setAdvancedSoundSettings",
-            "params": settings,
-            "id": 1
-        }
-        response = await self.send_command(cmd)  # nebo jakákoliv metoda v soundbar.py pro odeslání JSON-RPC
-        return response
-
 
     # Helpers --------------------------------
     async def volume(self) -> int:      return int((await self._call("getVolume"))["volume"])

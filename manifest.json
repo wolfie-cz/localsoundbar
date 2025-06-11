@@ -1,7 +1,7 @@
 {
   "domain": "soundbar_local",
-  "platforms": ["media_player", "switch"],
   "name": "Samsung Soundbar Local",
+  "platforms": ["media_player", "switch"],
   "version": "1.1",
   "config_flow": true,
   "iot_class": "local_polling",
