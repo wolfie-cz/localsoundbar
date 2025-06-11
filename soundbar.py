@@ -9,7 +9,9 @@ from __future__ import annotations
 import asyncio
 import json
 from typing import Any, Dict, Optional
+import logging
 
+LOGGER = logging.getLogger(__name__)
 import aiohttp
 import async_timeout
 
@@ -37,27 +39,22 @@ class AsyncSoundbar:
         self._token: Optional[str] = None
 
     # ------------------ internal helpers ------------------
-    async def _post(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        raw = json.dumps(payload, separators=(",", ":"))
+    async def _post(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Send POST request to soundbar."""
         try:
-            async with async_timeout.timeout(self._timeout):
-                resp = await self._session.post(
-                    self._url,
-                    data=raw,
-                    headers={
-                        "Content-Type": "application/json",
-                        "Accept": "application/json",
-                    },
-                    ssl=self._verify_ssl,
-                )
-            resp.raise_for_status()
-            data = await resp.json()
-        except (aiohttp.ClientError, asyncio.TimeoutError) as err:
-            raise SoundbarApiError(str(err)) from err
-
+            async with self._session.post(self._url, json=payload, timeout=5) as resp:
+                data = await resp.json()
+        except Exception as e:
+            raise SoundbarApiError(f"HTTP error: {e}")
+    
         if "error" in data:
             raise SoundbarApiError(data["error"])
-        return data["result"]
+
+        # Nepředpokládáme vždy přítomnost "result"
+        return data.get("result", data)  # Vrať 'result' pokud je, jinak celé 'data'
+    
+    
+    
 
     async def _call(self, method: str, **params: Any):
         if method != "createAccessToken":
@@ -69,19 +66,6 @@ class AsyncSoundbar:
         if params:
             payload["params"] = params
         return await self._post(payload)
-        
-        
-        
-    async def set_night_mode(self, enable: bool) -> bool:
-        """
-        Nastaví night mode přes setAdvancedSoundSettings.
-        """
-        try:
-            result = await self._call("setAdvancedSoundSettings", params={"nightMode": enable})
-            return result.get("result") == "ok"
-        except Exception as e:
-            _LOGGER.warning(f"Chyba při nastavování night mode: {e}")
-            return False
 
     # ------------------ public API ------------------
     async def create_token(self) -> str:
@@ -117,6 +101,45 @@ class AsyncSoundbar:
 
     async def set_sound_mode(self, mode: str):
         await self._call("soundModeControl", soundMode=mode)
+        
+       
+       
+    async def set_night_mode(self, enabled: bool):
+        """Set night mode using ms.channel.emit and EXECUTE command."""
+        payload = {
+            "method": "ms.channel.emit",
+            "params": {
+                "event": "ed.installedApp.event",
+                "to": "host",
+                "data": {
+                    "component": "audio",
+                    "capability": "custom1",
+                    "command": "setNightMode",
+                    "arguments": ["on" if enabled else "off"]
+                }
+            }
+        }
+
+
+        try:
+            response = await self._post(payload)
+            _LOGGER.debug("Night mode response: %s", response)
+            self._night_mode_enabled = enabled
+            return response
+        except Exception as e:
+            raise SoundbarApiError(f"Failed to set night mode: {e}")
+
+    @property
+    def night_mode(self) -> bool:
+        """Return cached night mode status (best-effort)."""
+        return getattr(self, "_night_mode_enabled", False)
+
+
+
+        
+    async def set_advanced_sound_settings(self, settings: dict):
+        """Send advanced sound settings, e.g. nightMode: 'on' / 'off'."""
+        await self._call("setAdvancedSoundSettings", **settings)
 
     # Helpers --------------------------------
     async def volume(self) -> int:      return int((await self._call("getVolume"))["volume"])

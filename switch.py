@@ -1,69 +1,46 @@
-from __future__ import annotations
-
-import logging
+### Soubor: switch.py
 
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.core import callback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.helpers.entity import DeviceInfo
+from hashlib import sha1
+from .const import DOMAIN, LOGGER
 
-from .const import DOMAIN
-from .soundbar import AsyncSoundbar
+async def async_setup_entry(hass, config_entry, async_add_entities):
+    soundbar = hass.data[DOMAIN][config_entry.entry_id]["soundbar"]
+    async_add_entities([NightModeSwitch(soundbar)], update_before_add=False)
 
-_LOGGER = logging.getLogger(__name__)
-
-async def async_setup_entry(hass, entry: ConfigEntry, async_add_entities):
-    """Nastavení Night Mode switche z config entry."""
-    data = hass.data[DOMAIN][entry.entry_id]
-    coordinator = data["coordinator"]
-    soundbar: AsyncSoundbar = data["soundbar"]
-
-    async_add_entities([NightModeSwitch(coordinator, soundbar, entry)], True)
-
-
-class NightModeSwitch(CoordinatorEntity, SwitchEntity):
-    """Night Mode switch pro Samsung Soundbar."""
-
-    def __init__(self, coordinator, soundbar: AsyncSoundbar, entry: ConfigEntry) -> None:
-        super().__init__(coordinator)
+class NightModeSwitch(SwitchEntity):
+    def __init__(self, soundbar):
         self._soundbar = soundbar
-        self._entry = entry
-        host = entry.data["host"]
-        self._attr_name = f"Soundbar Night Mode {host}"
-        self._attr_unique_id = f"{host}_night_mode"
-        self._is_on = False
-
-    async def async_added_to_hass(self):
-        await super().async_added_to_hass()
-        try:
-            settings = await self._soundbar.get_advanced_sound_settings()
-            self._is_on = settings.get("nightMode", False)
-            self.async_write_ha_state()
-        except Exception as e:
-            _LOGGER.warning(f"Chyba při načítání night mode: {e}")
+        self._attr_name = "Samsung Soundbar Night Mode"
+        self._attr_unique_id = f"{sha1(soundbar._url.encode()).hexdigest()}_night_mode"
+        self._is_on = False  # Lokální stav
 
     @property
-    def is_on(self) -> bool:
+    def is_on(self):
         return self._is_on
+    @property
+    def device_info(self) -> DeviceInfo:
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._soundbar._url)},
+            name="Samsung Soundbar",
+            manufacturer="Samsung",
+            model="Q990D"
+        )
 
-    async def async_turn_on(self, **kwargs) -> None:
-        success = await self._soundbar.set_night_mode(True)
-        if success:
-            self._is_on = True
-            self.async_write_ha_state()
-            await self.coordinator.async_request_refresh()
-        else:
-            _LOGGER.warning("Nepodařilo se zapnout night mode.")
-
-    async def async_turn_off(self, **kwargs) -> None:
-        success = await self._soundbar.set_night_mode(False)
-        if success:
-            self._is_on = False
-            self.async_write_ha_state()
-            await self.coordinator.async_request_refresh()
-        else:
-            _LOGGER.warning("Nepodařilo se vypnout night mode.")
-
-    @callback
-    def _handle_coordinator_update(self) -> None:
+    async def async_turn_on(self, **kwargs):
+        LOGGER.debug("Turning ON Night Mode via EXECUTE")
+        await self._soundbar.set_night_mode(True)
+        self._is_on = True
         self.async_write_ha_state()
+
+    async def async_turn_off(self, **kwargs):
+        LOGGER.debug("Turning OFF Night Mode via EXECUTE")
+        await self._soundbar.set_night_mode(False)
+        self._is_on = False
+        self.async_write_ha_state()
+
+    async def async_update(self):
+        # Volitelně: načíst stav ze zařízení, pokud to podporuje
+        pass

@@ -9,7 +9,6 @@ from homeassistant.components.media_player import (
     MediaPlayerEntityFeature,
 )
 from homeassistant.const import STATE_OFF, STATE_ON
-from homeassistant.helpers import entity_platform
 from homeassistant.core import callback
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -30,26 +29,9 @@ _SUPPORTED: MediaPlayerEntityFeature = (
     | MediaPlayerEntityFeature.SELECT_SOUND_MODE
 )
 
-_SOURCES = [
-    "HDMI_IN1",
-    "HDMI_IN2",
-    "E_ARC",
-    "ARC",
-    "D_IN",
-    "BT",
-    "WIFI_IDLE",
-]
+_SOURCES = ["D_IN", "BT", "WIFI_IDLE"]
 
-_SOUND_MODES = [
-    "STANDARD",
-    "SURROUND",
-    "GAME",
-    "MOVIE",
-    "MUSIC",
-    "CLEARVOICE",
-    "DTS_VIRTUAL_X",
-    "ADAPTIVE",
-]
+_SOUND_MODES = ["STANDARD", "SURROUND", "GAME", "ADAPTIVE"]
 
 
 async def async_setup_entry(hass, entry: ConfigEntry, async_add_entities):
@@ -60,26 +42,28 @@ async def async_setup_entry(hass, entry: ConfigEntry, async_add_entities):
 
     entity = SoundbarLocalEntity(coordinator, soundbar, entry)
     async_add_entities([entity], True)
+    hass.data[DOMAIN][entry.entry_id]["entities"] = [entity]
 
-    # Registrace služby set_night_mode
-    platform = entity_platform.async_get_current_platform()
+    async def handle_set_night_mode(call):
+        entity_id = call.data.get("entity_id")
+        for e in hass.data[DOMAIN][entry.entry_id]["entities"]:
+            if e.entity_id == entity_id:
+                await e.set_advanced_sound_settings({
+                    "nightMode": "on" if call.data["night"] else "off"
+                })
+                return
 
-    platform.async_register_entity_service(
-        "set_night_mode",
-        {
-            "enable": bool,
-        },
-        "async_set_night_mode",
+    hass.services.async_register(
+        DOMAIN, "set_night_mode", handle_set_night_mode
     )
-    
-    
+
+
 class SoundbarLocalEntity(CoordinatorEntity, MediaPlayerEntity):
     """Representation of the soundbar as a Media Player entity."""
 
     _attr_supported_features = _SUPPORTED
     _attr_source_list = _SOURCES
     _attr_sound_mode_list = _SOUND_MODES
-    _night_mode: bool = False  # stav night mode
 
     def __init__(self, coordinator, soundbar: AsyncSoundbar, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
@@ -96,32 +80,7 @@ class SoundbarLocalEntity(CoordinatorEntity, MediaPlayerEntity):
             name=self._attr_name,
         )
 
-    async def async_set_night_mode(self, enable: bool) -> None:
-        """Zapne nebo vypne night mode."""
-        try:
-            success = await self._soundbar.set_night_mode(enable)
-            if success:
-                self._night_mode = enable
-                self.async_write_ha_state()
-            else:
-                _LOGGER.warning("Nepodařilo se nastavit night mode.")
-        except Exception as e:
-            _LOGGER.exception(f"Chyba při nastavování night mode: {e}")
-            
-            
-            
-    async def async_added_to_hass(self):
-        """Načte počáteční stav night mode při přidání do Home Assistantu."""
-        await super().async_added_to_hass()
-        try:
-            settings = await self._soundbar.get_advanced_sound_settings()
-            self._night_mode = settings.get("nightMode", False)
-            self.async_write_ha_state()
-        except Exception as e:
-            _LOGGER.warning("Nepodařilo se načíst stav night mode: %s", e)
-            
- 
-    
+    # ---------- control ----------
     async def async_turn_on(self) -> None:
         await self._soundbar.power_on()
         await self.coordinator.async_request_refresh()
@@ -155,15 +114,11 @@ class SoundbarLocalEntity(CoordinatorEntity, MediaPlayerEntity):
         await self._soundbar.set_sound_mode(sound_mode)
         await self.coordinator.async_request_refresh()
 
+    async def set_advanced_sound_settings(self, settings: dict):
+        """Send advanced sound settings to the soundbar."""
+        await self._soundbar.set_advanced_sound_settings(settings)
+
     # ---------- properties ----------
-    
-    @property
-    def extra_state_attributes(self):
-        attrs = super().extra_state_attributes or {}
-        attrs["night_mode"] = self._night_mode
-        return attrs
-        
-        
     @property
     def state(self):
         power = self.coordinator.data.get("power")

@@ -40,6 +40,27 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         verify_ssl=entry.data.get(CONF_VERIFY_SSL, False),
     )
 
+    async def async_set_night_mode(call: ServiceCall):
+        entity_id = call.data["entity_id"]
+        enabled = call.data["enabled"]
+
+        entity = next(
+            (e for e in hass.data[DOMAIN]["entities"] if e.entity_id == entity_id),
+            None,
+        )
+        if entity:
+            await entity._soundbar.set_night_mode(enabled)
+
+    hass.services.async_register(
+        DOMAIN,
+        "set_night_mode",
+        async_set_night_mode,
+    )
+
+
+
+
+
     async def _async_update_data() -> dict[str, Any]:
         try:
             return await soundbar.status()
